@@ -523,11 +523,47 @@ class RabbitmqAuditlogApplicationTests {
 
         // This should be topic.permission.deleted not permission.deleted
         // see https://github.com/rabbitmq/rabbitmq-server/blob/v3.12.8/deps/rabbitmq_event_exchange/test/system_SUITE.erl#L398-L417
+        // bug reported here https://github.com/rabbitmq/rabbitmq-server/issues/9937
         await atMost 5.seconds.toJavaDuration() until {
             receiver.messages.any {
                 it.messageProperties.receivedRoutingKey == "permission.deleted" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli"
+            }
+        }
+    }
+
+    @Test
+    fun clearUserPermissionsTopicNoExchangeNameSpecified() {
+        val username = "clear-user-permissions-topic-test-2"
+        val password = "secret"
+
+        val exchangeName = "clear-user-permissions-topic-exchange-test-2"
+
+        rabbitInvoker.action { rabbitAdmin, _ ->
+            val exchange = TopicExchange(exchangeName)
+            rabbitAdmin.declareExchange(exchange)
+        }
+
+        rabbitInvoker.createUser(username, password)
+        rabbitInvoker.userSetPermissionsTopic(username, exchangeName, "xxx", "yyy")
+
+        await atMost 5.seconds.toJavaDuration() until {
+            receiver.messages.any {
+                it.messageProperties.receivedRoutingKey == "topic.permission.created" &&
+                        it.messageProperties.headers["user"] == username &&
+                        it.messageProperties.headers["exchange"] == exchangeName
+            }
+        }
+
+        rabbitInvoker.userClearPermissionsTopic(username)
+
+        await atMost 5.seconds.toJavaDuration() until {
+            receiver.messages.any {
+                it.messageProperties.receivedRoutingKey == "topic.permission.deleted" &&
+                        it.messageProperties.headers["user"] == username &&
+                        it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
+                        it.messageProperties.headers["user"] == "clear-user-permissions-topic-test-2"
             }
         }
     }
@@ -871,6 +907,13 @@ class RabbitInvoker(
         execInContainer(
                 "Unable to clear_topic_permissions for user",
                 "rabbitmqctl", "clear_topic_permissions", "-p", "/", username, topicExchangeName
+        )
+    }
+
+    fun userClearPermissionsTopic(username: String) {
+        execInContainer(
+                "Unable to clear_topic_permissions for user",
+                "rabbitmqctl", "clear_topic_permissions", "-p", "/", username
         )
     }
 
