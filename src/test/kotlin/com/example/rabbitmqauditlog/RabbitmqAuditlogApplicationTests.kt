@@ -16,7 +16,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestInstance.Lifecycle
 import org.slf4j.LoggerFactory
-import org.springframework.amqp.core.*
+import org.springframework.amqp.core.BindingBuilder
+import org.springframework.amqp.core.Message
+import org.springframework.amqp.core.MessageProperties
+import org.springframework.amqp.core.Queue
+import org.springframework.amqp.core.TopicExchange
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory
 import org.springframework.amqp.rabbit.connection.RabbitConnectionFactoryBean
 import org.springframework.amqp.rabbit.core.RabbitAdmin
@@ -48,15 +52,17 @@ const val auditQueueName = "my-audit-queue"
 
 @Testcontainers
 @TestInstance(Lifecycle.PER_CLASS)
-@SpringBootTest(classes = [
-    TestConfig::class
-])
+@SpringBootTest(
+    classes = [
+        TestConfig::class
+    ]
+)
 class RabbitmqAuditlogApplicationTests {
     @Autowired
     private lateinit var rabbitInvoker: RabbitInvoker
 
     @Autowired
-    private lateinit var receiver: Receiver
+    private lateinit var receiver: AuditLogReceiver
 
     @Test
     fun declareExchange() {
@@ -67,7 +73,7 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareExchange(exchange)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "exchange.created" &&
                             it.messageProperties.headers["name"] == exchangeName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
@@ -75,7 +81,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.exchangeExists(exchangeName))
-                    .isTrue()
+                .isTrue()
         }
     }
 
@@ -88,19 +94,19 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareExchange(exchange)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "exchange.created" &&
                             it.messageProperties.headers["name"] == exchangeName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
                 }
             }
             assertThat(rabbitInvoker.exchangeExists(exchangeName))
-                    .isTrue()
+                .isTrue()
 
             rabbitAdmin.deleteExchange(exchangeName)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "exchange.deleted" &&
                             it.messageProperties.headers["name"] == exchangeName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
@@ -108,7 +114,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.exchangeExists(exchangeName))
-                    .isFalse()
+                .isFalse()
         }
     }
 
@@ -120,7 +126,7 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareQueue(Queue(queueName))
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "queue.created" &&
                             it.messageProperties.headers["name"] == queueName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
@@ -128,7 +134,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.queueExists(queueName))
-                    .isTrue()
+                .isTrue()
         }
     }
 
@@ -140,19 +146,19 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareQueue(Queue(queueName))
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "queue.created" &&
                             it.messageProperties.headers["name"] == queueName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
                 }
             }
             assertThat(rabbitInvoker.queueExists(queueName))
-                    .isTrue()
+                .isTrue()
 
             rabbitAdmin.deleteQueue(queueName)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "queue.deleted" &&
                             it.messageProperties.headers["name"] == queueName &&
                             it.messageProperties.headers["user_who_performed_action"] == techUserName
@@ -160,7 +166,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.queueExists(queueName))
-                    .isFalse()
+                .isFalse()
         }
     }
 
@@ -178,7 +184,7 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareBinding(BindingBuilder.bind(queue).to(exchange).with("foo"))
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "binding.created" &&
                             it.messageProperties.headers["source_kind"] == "exchange" &&
                             it.messageProperties.headers["destination_kind"] == "queue" &&
@@ -190,7 +196,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.bindingExists(exchangeName, queueName, "foo"))
-                    .isTrue()
+                .isTrue()
         }
     }
 
@@ -210,7 +216,7 @@ class RabbitmqAuditlogApplicationTests {
             rabbitAdmin.declareBinding(binding)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "binding.created" &&
                             it.messageProperties.headers["source_kind"] == "exchange" &&
                             it.messageProperties.headers["destination_kind"] == "queue" &&
@@ -222,12 +228,12 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.bindingExists(exchangeName, queueName, "foo"))
-                    .isTrue()
+                .isTrue()
 
             rabbitAdmin.removeBinding(binding)
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "binding.deleted" &&
                             it.messageProperties.headers["source_kind"] == "exchange" &&
                             it.messageProperties.headers["destination_kind"] == "queue" &&
@@ -239,7 +245,7 @@ class RabbitmqAuditlogApplicationTests {
             }
 
             assertThat(rabbitInvoker.bindingExists(exchangeName, queueName, "foo"))
-                    .isFalse()
+                .isFalse()
         }
     }
 
@@ -250,7 +256,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.createVHost(vHostName, "my description", "foo", "bar")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "vhost.created" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == vHostName &&
@@ -260,7 +266,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.vhostExists(vHostName))
-                .isTrue()
+            .isTrue()
     }
 
     @Test
@@ -270,7 +276,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.createVHost(vHostName, "my description", "foo", "bar")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "vhost.created" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == vHostName &&
@@ -280,12 +286,12 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.vhostExists(vHostName))
-                .isTrue()
+            .isTrue()
 
         rabbitInvoker.deleteVHost(vHostName)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "vhost.deleted" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == vHostName
@@ -293,7 +299,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.vhostExists(vHostName))
-                .isFalse()
+            .isFalse()
     }
 
     @Test
@@ -303,7 +309,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.createUser(username, "secret")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.created" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == username
@@ -311,7 +317,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.userExists(username))
-                .isTrue()
+            .isTrue()
     }
 
     @Test
@@ -321,7 +327,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.createUser(username, "secret")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.created" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == username
@@ -329,12 +335,12 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.userExists(username))
-                .isTrue()
+            .isTrue()
 
         rabbitInvoker.deleteUser(username)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.deleted" &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
                         it.messageProperties.headers["name"] == username
@@ -342,7 +348,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         assertThat(rabbitInvoker.userExists(username))
-                .isFalse()
+            .isFalse()
     }
 
     @Test
@@ -354,7 +360,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetPermissions(username, ".foo", "bar", "xxx")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "permission.created" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
@@ -379,7 +385,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userChangePassword(username, "i-am-new-password")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.password.changed" &&
                         it.messageProperties.headers["name"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli"
@@ -401,7 +407,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userClearPassword(username)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.password.cleared" &&
                         it.messageProperties.headers["name"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli"
@@ -423,7 +429,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetTags(username, "foo", "bar")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.tags.set" &&
                         it.messageProperties.headers["name"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
@@ -434,7 +440,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetTags(username)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.tags.set" &&
                         it.messageProperties.headers["name"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
@@ -452,7 +458,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetPermissions(username, ".foo", "bar", "xxx")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "permission.created" &&
                         it.messageProperties.headers["user"] == username
             }
@@ -461,7 +467,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userClearPermissions(username)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "permission.deleted" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli"
@@ -485,7 +491,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetPermissionsTopic(username, exchangeName, "xxx", "yyy")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "topic.permission.created" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
@@ -512,7 +518,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetPermissionsTopic(username, exchangeName, "xxx", "yyy")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "topic.permission.created" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["exchange"] == exchangeName
@@ -523,10 +529,11 @@ class RabbitmqAuditlogApplicationTests {
 
         // This should be topic.permission.deleted not permission.deleted
         // see https://github.com/rabbitmq/rabbitmq-server/blob/v3.12.8/deps/rabbitmq_event_exchange/test/system_SUITE.erl#L398-L417
+        // fix detected in v4.1.2
         // bug reported here https://github.com/rabbitmq/rabbitmq-server/issues/9937
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
-                it.messageProperties.receivedRoutingKey == "permission.deleted" &&
+            receiver.auditMessages.any {
+                it.messageProperties.receivedRoutingKey == "topic.permission.deleted" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli"
             }
@@ -549,7 +556,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userSetPermissionsTopic(username, exchangeName, "xxx", "yyy")
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "topic.permission.created" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["exchange"] == exchangeName
@@ -559,7 +566,7 @@ class RabbitmqAuditlogApplicationTests {
         rabbitInvoker.userClearPermissionsTopic(username)
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "topic.permission.deleted" &&
                         it.messageProperties.headers["user"] == username &&
                         it.messageProperties.headers["user_who_performed_action"] == "rmq-cli" &&
@@ -589,7 +596,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.authentication.success" &&
                         it.messageProperties.headers["name"] == username
             }
@@ -597,7 +604,7 @@ class RabbitmqAuditlogApplicationTests {
     }
 
     @Test
-    fun consumer() {
+    fun consumerConnectedAndDisconnected() {
         val username = "consumer-test"
         val password = "secret"
         val exchangeName = "consumer-exchange-test"
@@ -630,7 +637,7 @@ class RabbitmqAuditlogApplicationTests {
             await atMost 5.seconds.toJavaDuration() untilTrue consumed
 
             await atMost 5.seconds.toJavaDuration() until {
-                receiver.messages.any {
+                receiver.auditMessages.any {
                     it.messageProperties.receivedRoutingKey == "consumer.created" &&
                             it.messageProperties.headers["queue"] == queueName &&
                             it.messageProperties.headers["user_who_performed_action"] == username
@@ -643,7 +650,7 @@ class RabbitmqAuditlogApplicationTests {
         }
 
         await atMost 5.seconds.toJavaDuration() until {
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "consumer.deleted" &&
                         it.messageProperties.headers["queue"] == queueName &&
                         it.messageProperties.headers["user_who_performed_action"] == username
@@ -672,13 +679,13 @@ class RabbitmqAuditlogApplicationTests {
                 rabbitAdmin.getQueueInfo(queueName)
             }
         }.withRootCauseInstanceOf(AuthenticationFailureException::class.java)
-                .withMessageContaining("ACCESS_REFUSED - Login was refused using authentication mechanism PLAIN.")
+            .withMessageContaining("ACCESS_REFUSED - Login was refused using authentication mechanism PLAIN.")
 
         await atMost 5.seconds.toJavaDuration() until {
             val errorWithMessage = { properties: MessageProperties, expectedError: String ->
                 val list = (properties.headers["error"] as? List<*>)
-                        ?.filterIsInstance<Number>()
-                        ?.map { it.toByte() }
+                    ?.filterIsInstance<Number>()
+                    ?.map { it.toByte() }
                 if (list == null) {
                     false
                 } else {
@@ -686,7 +693,7 @@ class RabbitmqAuditlogApplicationTests {
                 }
             }
 
-            receiver.messages.any {
+            receiver.auditMessages.any {
                 it.messageProperties.receivedRoutingKey == "user.authentication.failure" &&
                         it.messageProperties.headers["name"] == username &&
                         errorWithMessage(it.messageProperties, "user '$username' - invalid credentials")
@@ -701,49 +708,49 @@ class TestConfig {
     @ServiceConnection
     fun rabbitMQContainer(): RabbitMQContainer {
         return RabbitMQContainer(DockerImageName.parse("rabbitmq:management"))
-                .withPluginsEnabled("rabbitmq_event_exchange")
-                .withQueue(rootVHost, auditQueueName)
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "queue.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "exchange.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "binding.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "consumer.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "vhost.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "user.#", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "permission.*", "queue")
-                .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "topic.permission.*", "queue")
-                .withUser(techUserName, techUserPassword, setOf("administrator"))
-                .withPermission(rootVHost, techUserName, ".*", ".*", ".*")
-                .withLogConsumer(Slf4jLogConsumer(LoggerFactory.getLogger("RabbitMQ Container")))
+            .withPluginsEnabled("rabbitmq_event_exchange")
+            .withQueue(rootVHost, auditQueueName)
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "queue.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "exchange.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "binding.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "consumer.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "vhost.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "user.#", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "permission.*", "queue")
+            .withBinding(rootVHost, auditExchangeName, auditQueueName, emptyMap(), "topic.permission.*", "queue")
+            .withUser(techUserName, techUserPassword, setOf("administrator"))
+            .withPermission(rootVHost, techUserName, ".*", ".*", ".*")
+            .withLogConsumer(Slf4jLogConsumer(LoggerFactory.getLogger("RabbitMQ Container")))
     }
 
     @Bean
     fun rabbitInvoker(
-            rabbit: RabbitMQContainer,
-            resourceLoader: ResourceLoader,
-            objectMapper: ObjectMapper
+        rabbit: RabbitMQContainer,
+        resourceLoader: ResourceLoader,
+        objectMapper: ObjectMapper
     ): RabbitInvoker {
         return RabbitInvoker(rabbit, resourceLoader, objectMapper)
     }
 }
 
 class RabbitInvoker(
-        private val rabbit: RabbitMQContainer,
-        private val resourceLoader: ResourceLoader,
-        private val objectMapper: ObjectMapper
+    private val rabbit: RabbitMQContainer,
+    private val resourceLoader: ResourceLoader,
+    private val objectMapper: ObjectMapper
 ) {
     fun action(
-            rabbitMQUsername: String,
-            rabbitMQPassword: String,
-            code: (RabbitAdmin, RabbitMQContainer) -> Unit
+        rabbitMQUsername: String,
+        rabbitMQPassword: String,
+        code: (RabbitAdmin, RabbitMQContainer) -> Unit
     ) {
         var userConnectionFactory: CachingConnectionFactory? = null
         try {
             userConnectionFactory = userConnectionFactory(
-                    rabbitMQUsername,
-                    rabbitMQPassword,
-                    rabbit.host,
-                    rabbit.amqpPort,
-                    resourceLoader
+                rabbitMQUsername,
+                rabbitMQPassword,
+                rabbit.host,
+                rabbit.amqpPort,
+                resourceLoader
             )
 
             val rabbitAdmin = RabbitAdmin(userConnectionFactory)
@@ -759,8 +766,8 @@ class RabbitInvoker(
 
     fun exchangeExists(exchangeName: String): Boolean {
         return execInContainer(
-                "Unable to get exchanges",
-                "rabbitmqadmin", "-V", "/", "list", "exchanges"
+            "Unable to get exchanges",
+            "rabbitmqadmin", "-V", "/", "list", "exchanges"
         ) { execResult ->
             execResult.stdout.contains(exchangeName)
         }
@@ -768,8 +775,8 @@ class RabbitInvoker(
 
     fun queueExists(queueName: String): Boolean {
         return execInContainer(
-                "Unable to get queues",
-                "rabbitmqadmin", "-V", "/", "list", "queues"
+            "Unable to get queues",
+            "rabbitmqadmin", "-V", "/", "list", "queues"
         ) { execResult ->
             execResult.stdout.contains(queueName)
         }
@@ -777,36 +784,36 @@ class RabbitInvoker(
 
     fun bindingExists(source: String, destination: String, routingKey: String): Boolean {
         return execInContainer(
-                "Unable to get queues",
-                "rabbitmqadmin", "--format", "pretty_json", "-V", "/", "list", "bindings"
+            "Unable to get queues",
+            "rabbitmqadmin", "--format", "pretty_json", "-V", "/", "list", "bindings"
         ) { execResult ->
 
             data class BindingRow(
-                    val arguments: Map<String, Any?>?,
-                    val destination: String,
-                    @JsonProperty("destination_type")
-                    val destinationType: String,
-                    @JsonProperty("properties_key")
-                    val propertiesKey: String,
-                    @JsonProperty("routing_key")
-                    val routingKey: String,
-                    val source: String,
-                    val vhost: String
+                val arguments: Map<String, Any?>?,
+                val destination: String,
+                @JsonProperty("destination_type")
+                val destinationType: String,
+                @JsonProperty("properties_key")
+                val propertiesKey: String,
+                @JsonProperty("routing_key")
+                val routingKey: String,
+                val source: String,
+                val vhost: String
             )
 
             val list = objectMapper.readValue(execResult.stdout, Array<BindingRow>::class.java)!!
             list.asSequence()
-                    .filter { it.source == source }
-                    .filter { it.destination == destination }
-                    .filter { it.routingKey == routingKey }
-                    .any()
+                .filter { it.source == source }
+                .filter { it.destination == destination }
+                .filter { it.routingKey == routingKey }
+                .any()
         }
     }
 
     fun vhostExists(vhostName: String): Boolean {
         return execInContainer(
-                "Unable to list vhosts",
-                "rabbitmqadmin", "-V", "/", "list", "vhosts"
+            "Unable to list vhosts",
+            "rabbitmqadmin", "-V", "/", "list", "vhosts"
         ) { execResult ->
             execResult.stdout.contains(vhostName)
         }
@@ -814,106 +821,106 @@ class RabbitInvoker(
 
     fun userExists(username: String): Boolean {
         return execInContainer(
-                "Unable to list users",
-                "rabbitmqadmin", "-V", "/", "list", "users"
+            "Unable to list users",
+            "rabbitmqadmin", "-V", "/", "list", "users"
         ) { execResult ->
             execResult.stdout.contains(username)
         }
     }
 
     fun createVHost(
-            vHostName: String,
-            description: String,
-            vararg tags: String
+        vHostName: String,
+        description: String,
+        vararg tags: String
     ) {
         execInContainer(
-                "Unable to add_vhost",
-                "rabbitmqctl", "add_vhost", vHostName, "--description", description, "--tags", tags.joinToString(",")
+            "Unable to add_vhost",
+            "rabbitmqctl", "add_vhost", vHostName, "--description", description, "--tags", tags.joinToString(",")
         )
     }
 
     fun deleteVHost(
-            vHostName: String
+        vHostName: String
     ) {
         execInContainer(
-                "Unable to delete_vhost",
-                "rabbitmqctl", "delete_vhost", vHostName
+            "Unable to delete_vhost",
+            "rabbitmqctl", "delete_vhost", vHostName
         )
     }
 
     fun createUser(
-            username: String,
-            password: String
+        username: String,
+        password: String
     ) {
         execInContainer(
-                "Unable to add_user",
-                "rabbitmqctl", "add_user", username, password
+            "Unable to add_user",
+            "rabbitmqctl", "add_user", username, password
         )
     }
 
     fun userChangePassword(
-            username: String,
-            password: String
+        username: String,
+        password: String
     ) {
         execInContainer(
-                "Unable to change_password",
-                "rabbitmqctl", "change_password", username, password
+            "Unable to change_password",
+            "rabbitmqctl", "change_password", username, password
         )
     }
 
     fun userClearPassword(username: String) {
         execInContainer(
-                "Unable to clear_password",
-                "rabbitmqctl", "clear_password", username
+            "Unable to clear_password",
+            "rabbitmqctl", "clear_password", username
         )
     }
 
     fun userSetTags(username: String, vararg tags: String) {
         execInContainer(
-                "Unable to set_user_tags",
-                "rabbitmqctl", "set_user_tags", username, *tags
+            "Unable to set_user_tags",
+            "rabbitmqctl", "set_user_tags", username, *tags
         )
     }
 
     fun deleteUser(username: String) {
         execInContainer(
-                "Unable to delete_user",
-                "rabbitmqctl", "delete_user", username
+            "Unable to delete_user",
+            "rabbitmqctl", "delete_user", username
         )
     }
 
     fun userSetPermissions(username: String, permissionConfigure: String, permissionWrite: String, permissionRead: String) {
         execInContainer(
-                "Unable to set_permissions for user",
-                "rabbitmqctl", "set_permissions", "-p", "/", username, permissionConfigure, permissionWrite, permissionRead
+            "Unable to set_permissions for user",
+            "rabbitmqctl", "set_permissions", "-p", "/", username, permissionConfigure, permissionWrite, permissionRead
         )
     }
 
     fun userClearPermissions(username: String) {
         execInContainer(
-                "Unable to clear_permissions user",
-                "rabbitmqctl", "clear_permissions", "-p", "/", username
+            "Unable to clear_permissions user",
+            "rabbitmqctl", "clear_permissions", "-p", "/", username
         )
     }
 
     fun userSetPermissionsTopic(username: String, topicExchangeName: String, permissionWrite: String, permissionRead: String) {
         execInContainer(
-                "Unable to set_topic_permissions user",
-                "rabbitmqctl", "set_topic_permissions", "-p", "/", username, topicExchangeName, permissionWrite, permissionRead
+            "Unable to set_topic_permissions user",
+            "rabbitmqctl", "set_topic_permissions", "-p", "/", username, topicExchangeName, permissionWrite, permissionRead
         )
     }
 
     fun userClearPermissionsTopic(username: String, topicExchangeName: String) {
         execInContainer(
-                "Unable to clear_topic_permissions for user",
-                "rabbitmqctl", "clear_topic_permissions", "-p", "/", username, topicExchangeName
+            "Unable to clear_topic_permissions for user",
+            "rabbitmqctl", "clear_topic_permissions", "-p", "/", username, topicExchangeName
         )
     }
 
     fun userClearPermissionsTopic(username: String) {
         execInContainer(
-                "Unable to clear_topic_permissions for user",
-                "rabbitmqctl", "clear_topic_permissions", "-p", "/", username
+            "Unable to clear_topic_permissions for user",
+            "rabbitmqctl", "clear_topic_permissions", "-p", "/", username
         )
     }
 
@@ -932,11 +939,11 @@ class RabbitInvoker(
     }
 
     private fun userConnectionFactory(
-            username: String,
-            password: String,
-            host: String,
-            port: Int,
-            resourceLoader: ResourceLoader
+        username: String,
+        password: String,
+        host: String,
+        port: Int,
+        resourceLoader: ResourceLoader
     ): CachingConnectionFactory {
         val rabbitProperties = RabbitProperties().also {
             it.username = username
