@@ -30,7 +30,7 @@ fun main(args: Array<String>) {
 class Config {
     @Bean
     fun queue(): Queue {
-        return Queue(queueName, true)
+        return Queue(auditQueueName, true)
     }
 
     @Bean
@@ -40,13 +40,13 @@ class Config {
     ): SimpleMessageListenerContainer {
         val container = SimpleMessageListenerContainer()
         container.connectionFactory = connectionFactory
-        container.setQueueNames(queueName)
+        container.setQueueNames(auditQueueName)
         container.setMessageListener(listenerAdapter)
         return container
     }
 
     @Bean
-    fun listenerAdapter(receiver: Receiver): MessageListenerAdapter {
+    fun listenerAdapter(receiver: AuditLogReceiver): MessageListenerAdapter {
         return object : MessageListenerAdapter(receiver, "receiveMessage") {
             override fun buildListenerArguments(extractedMessage: Any?, channel: Channel?, message: Message?): Array<Any> {
                 return arrayOf(extractedMessage!!, message!!)
@@ -55,15 +55,15 @@ class Config {
     }
 
     companion object {
-        const val queueName = "my-audit-queue"
+        const val auditQueueName = "my-audit-queue"
     }
 }
 
 
 @Component
-class Receiver {
+class AuditLogReceiver {
     private var _messages = CopyOnWriteArrayList<Message>()
-    val messages: List<Message>
+    val auditMessages: List<Message>
         get() {
             return _messages
         }
@@ -75,7 +75,7 @@ class Receiver {
 
 
     companion object {
-        private val logger = LoggerFactory.getLogger(Receiver::class.java)!!
+        private val logger = LoggerFactory.getLogger(AuditLogReceiver::class.java)!!
     }
 }
 
